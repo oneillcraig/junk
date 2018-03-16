@@ -1,0 +1,144 @@
+---
+title: "Tick Maxent Workflow"
+author: "Craig"
+date: "February 9, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Installing Necessary Packages
+
+```{r}
+library(dismo)
+library(tidyverse)
+library(rgdal)
+library(rJava)
+library(ENMeval)
+library(MaxentVariableSelection)
+
+
+```
+
+
+
+##Loading Environmental Data
+Needed for projections, hashed out for setting up the model
+```{r}
+files <- list.files("Z:/larsen_scratch/Lyme/Maxent/Back_Up_Annual_Layers", pattern='.asc', full.names = TRUE)
+
+env <- raster::stack("Z:/larsen_scratch/Lyme/Maxent/LayersAnnual/aet.asc",
+                                  "Z:/larsen_scratch/Lyme/Maxent/LayersAnnual/brd.asc",
+                                  "Z:/larsen_scratch/Lyme/Maxent/LayersAnnual/cwd.asc",
+                                 "Z:/larsen_scratch/Lyme/Maxent/LayersAnnual/fvegrec.asc",
+                                 "Z:/larsen_scratch/Lyme/Maxent/LayersAnnual/mam.asc",
+                                 "Z:/larsen_scratch/Lyme/Maxent/LayersAnnual/ppt.asc",
+                                 "Z:/larsen_scratch/Lyme/Maxent/LayersAnnual/pptdjf.asc",
+                                 "Z:/larsen_scratch/Lyme/Maxent/LayersAnnual/rep.asc",
+                                 "Z:/larsen_scratch/Lyme/Maxent/LayersAnnual/tmn.asc",
+                                 "Z:/larsen_scratch/Lyme/Maxent/LayersAnnual/tmx.asc",
+                                 "Z:/larsen_scratch/Lyme/Maxent/LayersAnnual/tmxjja.asc")
+                                 
+                                  
+                                  
+                                  
+                                  
+                                  "Z:/larsen_scratch/Lyme/Maxent/Back_Up_Annual_Layers/aetavg8110.asc", "Z:/larsen_scratch/Lyme/Maxent/Back_Up_Annual_Layers/cwdavg8110.asc", "Z:/larsen_scratch/Lyme/Maxent/Back_Up_Annual_Layers/pptavg8110.asc", "Z:/larsen_scratch/Lyme/Maxent/Back_Up_Annual_Layers/pptavgdjf8110.asc", "Z:/larsen_scratch/Lyme/Maxent/Back_Up_Annual_Layers/tmnavg8110.asc", "Z:/larsen_scratch/Lyme/Maxent/Back_Up_Annual_Layers/tmxavg8110.asc", "Z:/larsen_scratch/Lyme/Maxent/Back_Up_Annual_Layers/tmxavgjja8110.asc")
+
+
+```
+
+##Setting up SWD
+
+```{r}
+
+Background <- read.csv(choose.files()) #this if just for the test using Andy's background points
+Occurance <- read.csv(choose.files())
+
+Background <- Background %>% 
+  select(aet, cwd, ppt, pptdjf, tmn, tmx, tmxjja, fvegrec, mam, brd, rep)
+
+Occurance <- Occurance%>% 
+  select(aet, cwd, ppt, pptdjf, tmn, tmx, tmxjja, fvegrec, mam, brd, rep)
+
+
+swd <- rbind(Occurance, Background)
+p <- c(rep(1,2000), rep(0,18000))
+swd$fvegrec <- as.factor(swd$fvegrec)
+```
+
+
+##Running Maxent
+
+Maxent with SWD
+```{r}
+#tic()
+#jar <- paste(system.file(package="dismo"), "/java/maxent.jar", sep='')
+#if (file.exists(jar)){
+
+ #     plot(ann_max_nojja)
+#} else{
+ # cat('cannot run this example because maxent is not available')
+#  plot(1)
+#}
+#toc()
+
+#ann_max_nojja
+
+#, args=c("responsecurves=true", "jackknife=true", "maximumbackground=18000", "replicates=5", "maximumiterations=100")
+
+
+
+tune_18_02_24_v07 <- maxent(x = swd, p = p, path="H:/Tick Project/SWD_Annual_nopptjja_Tuning/Results/18-02-24v07c" ,args=c("responsecurves=true", "jackknife=true", "replicates=5", "maximumbackground=18000", "threshold=false", "hinge=false", "autofeature=false", "maximumiterations=10000"))
+
+tune_18_02_24_v07
+
+```
+
+
+##MaxentVariableSelector
+```{r}
+
+outdir <- ("H:/Tick Project/RScriptTesting/VariableSelect")
+maxent <- ("H:/R/win-library/3.3/dismo/java/maxent.jar")
+gridfolder <- ("Z:/larsen_scratch/Lyme/Maxent/LayersAnnual")
+occurencelocations <- ("H:/Tick Project/SWD_Annual_nopptjja_Tuning/Annual_Samples_MaxentSWD_No_pptjja.csv")
+backgroundlocations <- ("H:/Tick Project/SWD_Annual_nopptjja_Tuning/Annual_Background_MaxentSWD_No_pptjja.csv")
+
+
+testVarSelect <- VariableSelection(maxent, 
+                           outdir,
+                           gridfolder,
+                           occurencelocations,
+                           backgroundlocations,
+                           additionalargs = "linear=true, quadratic=true, product=true",
+                           contributionthreshold = 5,
+                           correlationthreshold = .9,
+                           betamultiplier = seq(0.5,6,0.5))
+
+
+bg.coords <- Background %>% 
+  select(longitude, latitude)
+
+occ <- Occurance %>% 
+  select(longitude, latitude)
+
+categorical <- "fvegrec"
+
+testENMeval <- ENMevaluate(occ,
+                           env,
+                           bg.coords, 
+                           RMvalues = seq(0.5, 6,0.5),
+                           fc = c("L", "LQ", "H", "LQH", "LQHP", "LQHPT"), 
+                           categoricals = fvegrec, 
+                           n.bg = 18000, 
+                           method = c("jackknife", "randomkfold", "user"), 
+                           aggregation.factor=c(2,2), 
+                           kfolds = 1, 
+                           rasterPreds=FALSE, 
+                           progbar=TRUE, 
+                           updateProgress=TRUE)
+```
+

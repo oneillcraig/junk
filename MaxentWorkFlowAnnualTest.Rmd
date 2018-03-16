@@ -1,0 +1,179 @@
+---
+title: "Tick Maxent Workflow"
+author: "Craig"
+date: "February 9, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Installing Necessary Packages
+
+```{r}
+library(dismo)
+library(ENMeval)
+library(latticeExtra)
+library(maptools)
+library(maps)
+library(MaxentVariableSelection) #Used for SWD occurance data
+library(tidyverse)
+library(rasterVis)
+library(raster)
+library(rgdal)
+library(rJava)
+library(sf)
+library(sp)
+library(tictoc)
+library(tmap)
+
+
+```
+
+##Loading Presence Points
+1.  Import Data
+2.  Select Random Training Points from Data
+3.  Select 1-Random Training Points to get Testing Points
+```{r}
+occ <- read.csv(choose.files())
+#longlat <- occ[,c(2,3)] #create data of just the lat long points, this is used to extract the datapoints from rasters.
+
+
+```
+
+
+
+##Loading Environmental Data
+```{r}
+files <- list.files("H:/Tick Project/SWD_Annual/Layers/", pattern='.asc', full.names = TRUE)
+
+raster_variables <- raster::stack(files)
+
+
+```
+
+
+##Wrangling Data
+1.  Make sure all data is in the same projection
+2.  Make sure all data is in the same resolution
+3.  Setting Same Extent
+
+3.  SF can do this
+
+
+##Select Background Points
+1.  KFold Random Sampling
+2.  Save as CSV
+
+
+##Creating Presence and Background Points with Data
+1.  Stack Raster Files
+2.  Extract using the long/lat of presence points.  Can also extract by mask if using buffers.
+3.  Create a new dataframe
+4.  Use Extract to extract the rasterstack data based on the points
+
+Questions:  How to subset the stack by month.  Either have a folder for each month, or use the subset()
+
+```{r}
+variables <- raster::stack(files)#stack rasters you want for SWD, need to match monthly models with the month of interest.  Either divide 
+
+variables_at_occurance <- raster::extract(variables, longlat, method = 'simple') #can also do bilinear, this is using point data.  Can also use spatialpolygons
+
+occ_swd <- as.data.frame(cbind("Ixodes pacificus", 
+                               longlat,
+                               variables_at_occurance))
+
+occ_swd <- read.csv(choose.files()) # This is just for the test comparison where I am using Andy's already extracted dataset
+
+Background <- read.csv(choose.files()) #this if just for the test using Andy's background points
+Occurance <- read.csv(choose.files())
+Predictors <- raster_variables #the raster files
+
+Background <- Background %>% 
+  select(aet, cwd, ppt, pptdjf, tmn, tmx, tmxjja, fvegrec, mam, brd, rep)
+
+Occurance <- Occurance%>% 
+  select(aet, cwd, ppt, pptdjf, tmn, tmx, tmxjja, fvegrec, mam, brd, rep)
+
+
+swd <- rbind(Occurance, Background)
+p <- c(rep(1,1592), rep(0,18000))
+swd$fvegrec <- as.factor(swd$fvegrec)
+```
+
+
+##Running Maxent
+1.  Subset to Month
+2.  Run Maxent
+3.  Predict/Project with Future
+4.  Evaluate
+
+
+Simple Maxent SWD, no additional arguments
+```{r}
+#tic()
+#jar <- paste(system.file(package="dismo"), "/java/maxent.jar", sep='')
+#if (file.exists(jar)){
+
+ #     plot(ann_max_nojja)
+#} else{
+ # cat('cannot run this example because maxent is not available')
+#  plot(1)
+#}
+#toc()
+
+#ann_max_nojja
+
+#, args=c("responsecurves=true", "jackknife=true", "maximumbackground=18000", "replicates=5", "maximumiterations=100")
+
+
+
+tune_18_02_24_v07 <- maxent(x = swd, p = p, path="H:/Google Drive/Tick Project/RScriptTesting/SWD_Annual_nopptjja_Tuning/Results/tune_18_02_24_v07" ,args=c("responsecurves=true", "jackknife=true", "replicates=5", "maximumbackground=18000", "threshold=false", "hinge=false", "autofeature=false", "maximumiterations=10000"))
+
+tune_18_02_24_v07
+
+response(tune_18_02_24_v07)
+```
+
+
+
+```{r}
+
+
+jar <- paste(system.file(package="dismo"), "/java/maxent.jar", sep='')
+if (file.exists(jar)){
+  ann_max_nojja <- maxent(x = swd, p = p, factors = raster_variables$fvegrec, progress ='text', args=c("responsecurves = true", "jackknife = true", "replicates = 5", "responsecurves = true", "nodata = -9999"))
+      plot(ann_max_nojja)
+} else{
+  cat('cannot run this example because maxent is not available')
+  plot(1)
+}
+
+if (file.exists(jar)) {
+  response(ann_max_nojja)
+} else {
+  cat('cannot run this example beacuase maxent is not available')
+  plot(1)
+}
+
+if (file.exists(jar)) {
+  e <- evaluate(pres_testMax, back_testMax, xmJan, RasterStackMax)
+  e
+  
+  px <- predict(ann_max_nojja, raster_variables, progress='text')
+  par(mfrow=c(1,2))
+  plot(px, main='Maxent, raw values NLCD')
+  plot(counties, add=TRUE, border='dark grey')
+  tr <- threshold(e, 'spec_sens')
+  plot(px > tr, main='presence/absence Jan')
+  plot(counties, add=TRUE, border='dark grey')
+  points(pres_trainMax, pch='+')
+} else {
+  plot(1)}
+
+xmNLCD
+
+```
+
+
